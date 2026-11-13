@@ -10,7 +10,7 @@ const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
 
 const char* SUPABASE_URL = "https://iddvgpghzdxybtzzshzt.supabase.co";
-const char* SUPABASE_ANON_KEY = "COLE_A_CHAVE_ANON_PUBLICA_AQUI";
+const char* SUPABASE_ANON_KEY = "sb_publishable_zEhSzmNn5ZFuG5SiCy_mrA_lFdTTzLU";
 const unsigned long DISPOSITIVO_ID = 1;
 const unsigned long INTERVALO_ENVIO_MS = 10000;
 
