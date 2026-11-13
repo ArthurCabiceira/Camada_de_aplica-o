@@ -1,4 +1,46 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <string.h>
+#include <time.h>
+
+// Configure estas credenciais antes de usar em uma rede real.
+const char* WIFI_SSID = "Wokwi-GUEST";
+const char* WIFI_PASSWORD = "";
+
+const char* SUPABASE_URL = "https://iddvgpghzdxybtzzshzt.supabase.co";
+const char* SUPABASE_ANON_KEY = "COLE_A_CHAVE_ANON_PUBLICA_AQUI";
+const unsigned long DISPOSITIVO_ID = 1;
+const unsigned long INTERVALO_ENVIO_MS = 10000;
+
+static const char SUPABASE_ROOT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDejCCAmKgAwIBAgIQf+UwvzMTQ77dghYQST2KGzANBgkqhkiG9w0BAQsFADBX
+MQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEQMA4GA1UE
+CxMHUm9vdCBDQTEbMBkGA1UEAxMSR2xvYmFsU2lnbiBSb290IENBMB4XDTIzMTEx
+NTAzNDMyMVoXDTI4MDEyODAwMDA0MlowRzELMAkGA1UEBhMCVVMxIjAgBgNVBAoT
+GUdvb2dsZSBUcnVzdCBTZXJ2aWNlcyBMTEMxFDASBgNVBAMTC0dUUyBSb290IFI0
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE83Rzp2iLYK5DuDXFgTB7S0md+8Fhzube
+Rr1r1WEYNa5A3XP3iZEwWus87oV8okB2O6nGuEfYKueSkWpz6bFyOZ8pn6KY019e
+WIZlD6GEZQbR3IvJx3PIjGov5cSr0R2Ko4H/MIH8MA4GA1UdDwEB/wQEAwIBhjAd
+BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd
+BgNVHQ4EFgQUgEzW63T/STaj1dj8tT7FavCUHYwwHwYDVR0jBBgwFoAUYHtmGkUN
+l8qJUC99BM00qP/8/UswNgYIKwYBBQUHAQEEKjAoMCYGCCsGAQUFBzAChhpodHRw
+Oi8vaS5wa2kuZ29vZy9nc3IxLmNydDAtBgNVHR8EJjAkMCKgIKAehhxodHRwOi8v
+Yy5wa2kuZ29vZy9yL2dzcjEuY3JsMBMGA1UdIAQMMAowCAYGZ4EMAQIBMA0GCSqG
+SIb3DQEBCwUAA4IBAQAYQrsPBtYDh5bjP2OBDwmkoWhIDDkic574y04tfzHpn+cJ
+odI2D4SseesQ6bDrarZ7C30ddLibZatoKiws3UL9xnELz4ct92vID24FfVbiI1hY
++SW6FoVHkNeWIP0GCbaM4C6uVdF5dTUsMVs/ZbzNnIdCp5Gxmx5ejvEau8otR/Cs
+kGN+hr/W5GvT1tMBjgWKZ1i4//emhA1JG1BbPzoLJQvyEotc03lXjTaCzv8mEbep
+8RqZ7a2CPsgRbuvTPBwcOMBBmuFeU88+FSBX6+7iP0il8b4Z0QFqIwwMHfs/L6K1
+vepuoxtGzi4CZ68zJpiq1UvSqTbFJjtbD4seiMHl
+-----END CERTIFICATE-----
+)EOF";
+
+int ledRAtual = 0;
+int ledGAtual = 0;
+int ledBAtual = 0;
 
 // --- MAPEAMENTO DE PINOS NO ESP32 ---
 const int PIN_LED_R       = 25; // Pino Vermelho do LED RGB
@@ -53,9 +95,77 @@ float lerTemperaturaC(int pino) {
 
 // --- CONFIGURAÇÃO DAS CORES DO LED RGB ---
 void definirCorRGB(int r, int g, int b) {
+  ledRAtual = r;
+  ledGAtual = g;
+  ledBAtual = b;
   analogWrite(PIN_LED_R, r);
   analogWrite(PIN_LED_G, g);
   analogWrite(PIN_LED_B, b);
+}
+
+void enviarLeitura(float temperaturaC, int luminosidadeAdc, int potenciometroAdc,
+                   bool sistemaAtivo, bool buzzerSoando) {
+  if (strcmp(SUPABASE_ANON_KEY, "COLE_A_CHAVE_ANON_PUBLICA_AQUI") == 0) {
+    Serial.println("Supabase nao configurado: preencha SUPABASE_ANON_KEY.");
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Leitura nao enviada: Wi-Fi desconectado.");
+    return;
+  }
+
+  if (time(nullptr) < 1700000000) {
+    Serial.println("Leitura nao enviada: aguardando sincronizacao do horario.");
+    return;
+  }
+
+  WiFiClientSecure clienteSeguro;
+  clienteSeguro.setCACert(SUPABASE_ROOT_CA);
+
+  HTTPClient http;
+  const String endpoint = String(SUPABASE_URL) + "/rest/v1/leituras";
+  if (!http.begin(clienteSeguro, endpoint)) {
+    Serial.println("Nao foi possivel iniciar a requisicao HTTPS ao Supabase.");
+    return;
+  }
+
+  http.setTimeout(5000);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", SUPABASE_ANON_KEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
+  http.addHeader("Prefer", "return=minimal");
+
+  String temperaturaJson = ativadoTemperatura ? String(temperaturaC, 2) : "null";
+  String payload = "{\"dispositivo_id\":" + String(DISPOSITIVO_ID) +
+      ",\"temperatura_c\":" + temperaturaJson +
+      ",\"luminosidade_adc\":" + String(luminosidadeAdc) +
+      ",\"potenciometro_adc\":" + String(potenciometroAdc) +
+      ",\"sistema_ativo\":" + String(sistemaAtivo ? "true" : "false") +
+      ",\"temperatura_sensor_ativo\":" + String(ativadoTemperatura ? "true" : "false") +
+      ",\"detector_ativo\":" + String(ativadoDetector ? "true" : "false") +
+      ",\"buzzer_habilitado\":" + String(ativadoBuzzer ? "true" : "false") +
+      ",\"painel_ligado\":" + String(ligadoPainel ? "true" : "false") +
+      ",\"led_ligado\":" + String((ledRAtual || ledGAtual || ledBAtual) ? "true" : "false") +
+      ",\"led_r\":" + String(ledRAtual) +
+      ",\"led_g\":" + String(ledGAtual) +
+      ",\"led_b\":" + String(ledBAtual) +
+      ",\"buzzer_soando\":" + String(buzzerSoando ? "true" : "false") + "}";
+
+  int codigoHttp = http.POST(payload);
+  if (codigoHttp >= 200 && codigoHttp < 300) {
+    Serial.println("Leitura enviada ao Supabase.");
+  } else if (codigoHttp > 0) {
+    Serial.print("Supabase respondeu HTTP ");
+    Serial.print(codigoHttp);
+    Serial.print(": ");
+    Serial.println(http.getString());
+  } else {
+    Serial.print("Falha ao enviar leitura: ");
+    Serial.println(http.errorToString(codigoHttp));
+  }
+
+  http.end();
 }
 
 void definirCorPorEspectro(int valorPot) {
@@ -108,8 +218,25 @@ void processarComando(String cmd) {
   }
 }
 
+void manterConexaoWiFi() {
+  static unsigned long ultimaTentativa = 0;
+  if (WiFi.status() == WL_CONNECTED ||
+      millis() - ultimaTentativa < INTERVALO_ENVIO_MS) {
+    return;
+  }
+
+  ultimaTentativa = millis();
+  Serial.println("Reconectando ao Wi-Fi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
 void setup() {
   Serial.begin(115200);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.println("Conectando ao Wi-Fi para enviar dados ao Supabase...");
 
   pinMode(PIN_LED_R, OUTPUT);
   pinMode(PIN_LED_G, OUTPUT);
@@ -127,6 +254,8 @@ void setup() {
 }
 
 void loop() {
+  manterConexaoWiFi();
+
   if (Serial.available() > 0) {
     String comando = Serial.readStringUntil('\n');
     processarComando(comando);
@@ -164,7 +293,9 @@ void loop() {
     Serial.println("------------------------------------------");
   }
 
-  if (ativadoBuzzer && ativadoTemperatura && emPerigoTemp && sistemaAtivoBotao) {
+  bool buzzerSoando = ativadoBuzzer && ativadoTemperatura &&
+                      emPerigoTemp && sistemaAtivoBotao;
+  if (buzzerSoando) {
     tone(PIN_BUZZER, 1000);
   } else {
     noTone(PIN_BUZZER);
@@ -180,6 +311,13 @@ void loop() {
     } else {
       definirCorPorEspectro(valorPot);
     }
+  }
+
+  static unsigned long ultimoEnvio = 0;
+  if (millis() - ultimoEnvio >= INTERVALO_ENVIO_MS) {
+    ultimoEnvio = millis();
+    bool sistemaAtivo = sistemaAtivoBotao && ligadoPainel;
+    enviarLeitura(tempC, valorLDR, valorPot, sistemaAtivo, buzzerSoando);
   }
 
   delay(50);
