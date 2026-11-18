@@ -1,74 +1,27 @@
+#include "thingProperties.h"
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
-#include <string.h>
-#include <time.h>
-
-// Configure estas credenciais antes de usar em uma rede real.
-const char* WIFI_SSID = "Wokwi-GUEST";
-const char* WIFI_PASSWORD = "";
-
-const char* SUPABASE_URL = "https://iddvgpghzdxybtzzshzt.supabase.co";
-const char* SUPABASE_ANON_KEY = "sb_publishable_zEhSzmNn5ZFuG5SiCy_mrA_lFdTTzLU";
-const unsigned long DISPOSITIVO_ID = 1;
-const unsigned long INTERVALO_ENVIO_MS = 10000;
-
-static const char SUPABASE_ROOT_CA[] PROGMEM = R"EOF(
------BEGIN CERTIFICATE-----
-MIIDejCCAmKgAwIBAgIQf+UwvzMTQ77dghYQST2KGzANBgkqhkiG9w0BAQsFADBX
-MQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEQMA4GA1UE
-CxMHUm9vdCBDQTEbMBkGA1UEAxMSR2xvYmFsU2lnbiBSb290IENBMB4XDTIzMTEx
-NTAzNDMyMVoXDTI4MDEyODAwMDA0MlowRzELMAkGA1UEBhMCVVMxIjAgBgNVBAoT
-GUdvb2dsZSBUcnVzdCBTZXJ2aWNlcyBMTEMxFDASBgNVBAMTC0dUUyBSb290IFI0
-MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE83Rzp2iLYK5DuDXFgTB7S0md+8Fhzube
-Rr1r1WEYNa5A3XP3iZEwWus87oV8okB2O6nGuEfYKueSkWpz6bFyOZ8pn6KY019e
-WIZlD6GEZQbR3IvJx3PIjGov5cSr0R2Ko4H/MIH8MA4GA1UdDwEB/wQEAwIBhjAd
-BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd
-BgNVHQ4EFgQUgEzW63T/STaj1dj8tT7FavCUHYwwHwYDVR0jBBgwFoAUYHtmGkUN
-l8qJUC99BM00qP/8/UswNgYIKwYBBQUHAQEEKjAoMCYGCCsGAQUFBzAChhpodHRw
-Oi8vaS5wa2kuZ29vZy9nc3IxLmNydDAtBgNVHR8EJjAkMCKgIKAehhxodHRwOi8v
-Yy5wa2kuZ29vZy9yL2dzcjEuY3JsMBMGA1UdIAQMMAowCAYGZ4EMAQIBMA0GCSqG
-SIb3DQEBCwUAA4IBAQAYQrsPBtYDh5bjP2OBDwmkoWhIDDkic574y04tfzHpn+cJ
-odI2D4SseesQ6bDrarZ7C30ddLibZatoKiws3UL9xnELz4ct92vID24FfVbiI1hY
-+SW6FoVHkNeWIP0GCbaM4C6uVdF5dTUsMVs/ZbzNnIdCp5Gxmx5ejvEau8otR/Cs
-kGN+hr/W5GvT1tMBjgWKZ1i4//emhA1JG1BbPzoLJQvyEotc03lXjTaCzv8mEbep
-8RqZ7a2CPsgRbuvTPBwcOMBBmuFeU88+FSBX6+7iP0il8b4Z0QFqIwwMHfs/L6K1
-vepuoxtGzi4CZ68zJpiq1UvSqTbFJjtbD4seiMHl
------END CERTIFICATE-----
-)EOF";
-
-int ledRAtual = 0;
-int ledGAtual = 0;
-int ledBAtual = 0;
 
 // --- MAPEAMENTO DE PINOS NO ESP32 ---
-const int PIN_LED_R       = 25; // Pino Vermelho do LED RGB
-const int PIN_LED_G       = 26; // Pino Verde do LED RGB
-const int PIN_LED_B       = 27; // Pino Azul do LED RGB
-const int PIN_POT         = 34; // Potenciômetro (ADC1)
-const int PIN_LDR         = 35; // Fotorresistor LDR (ADC1)
-const int PIN_TEMP        = 32; // Sensor NTC (ADC1)
-const int PIN_BUZZER      = 33; // Buzzer
-const int PIN_BOTÃO       = 14; // Botão (Interrupção externa)
+const int PIN_LED_R  = 25;
+const int PIN_LED_G  = 26;
+const int PIN_LED_B  = 27;
+const int PIN_POT    = 34; // ADC1
+const int PIN_LDR    = 35; // ADC1
+const int PIN_TEMP   = 32; // ADC1
+const int PIN_BUZZER = 33;
+const int PIN_BOTAO  = 14;
 
-// Limite de luminosidade do Fotorresistor (0 a 4095)
 const int LIMITE_LDR_ESCURO = 2000;
 
-// --- VARIÁVEIS DE ESTADO E BANDEIRAS ---
-bool ativadoTemperatura = true;
-bool ativadoDetector    = true;
-bool ativadoBuzzer      = true;
-bool ligadoPainel       = true;
-
-volatile bool sistemaAtivoBotao = true; 
+// --- VARIÁVEIS DE CONTROLE LOCAL ---
+volatile bool sistemaAtivoBotao = true;
 volatile unsigned long ultimoDebounceTempo = 0;
-const unsigned long DEBOUNCE_DELAY = 250; 
+const unsigned long DEBOUNCE_DELAY = 250;
 
 unsigned long tempoPiscaRGB = 0;
 bool modoTemporizadoRGB     = false;
 
-// --- INTERRUPÇÃO EXTERNA (ISR) PARA O BOTÃO ---
+// --- ISR DO BOTÃO FÍSICO ---
 void IRAM_ATTR tratarInterrupcaoBotao() {
   unsigned long tempoAtual = millis();
   if (tempoAtual - ultimoDebounceTempo > DEBOUNCE_DELAY) {
@@ -77,132 +30,65 @@ void IRAM_ATTR tratarInterrupcaoBotao() {
   }
 }
 
-// --- LEITURA DO NTC NO WOKWI (-24°C a 80°C) ---
+// --- LEITURA DO NTC (10k + resistor 10k) ---
 float lerTemperaturaC(int pino) {
   int leituraADC = analogRead(pino);
-
-  if (leituraADC <= 0) return 80.0;
+  if (leituraADC <= 0)    return 80.0;
   if (leituraADC >= 4095) return -24.0;
 
   float tensao = leituraADC * (3.3 / 4095.0);
-  float rNTC = 10000.0 * (tensao / (3.3 - tensao));
-
-  float tempK = 1.0 / ( (1.0 / 298.15) + (1.0 / 3950.0) * log(rNTC / 10000.0) );
-  float tempC = tempK - 273.15;
+  float rNTC   = 10000.0 * (tensao / (3.3 - tensao));
+  float tempK  = 1.0 / ( (1.0 / 298.15) + (1.0 / 3950.0) * log(rNTC / 10000.0) );
+  float tempC  = tempK - 273.15;
 
   return constrain(tempC, -24.0, 80.0);
 }
 
-// --- CONFIGURAÇÃO DAS CORES DO LED RGB ---
-void definirCorRGB(int r, int g, int b) {
-  ledRAtual = r;
-  ledGAtual = g;
-  ledBAtual = b;
+// --- LED RGB E ATUALIZAÇÃO DE COR NA NUVEM ---
+void definirCorRGB(int r, int g, int b, String nomeCor) {
   analogWrite(PIN_LED_R, r);
   analogWrite(PIN_LED_G, g);
   analogWrite(PIN_LED_B, b);
-}
 
-void enviarLeitura(float temperaturaC, int luminosidadeAdc, int potenciometroAdc,
-                   bool sistemaAtivo, bool buzzerSoando) {
-  if (strcmp(SUPABASE_ANON_KEY, "COLE_A_CHAVE_ANON_PUBLICA_AQUI") == 0) {
-    Serial.println("Supabase nao configurado: preencha SUPABASE_ANON_KEY.");
-    return;
+  // Atualiza a variável da nuvem apenas se houve mudança real
+  if (corAtual != nomeCor) {
+    corAtual = nomeCor;
   }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Leitura nao enviada: Wi-Fi desconectado.");
-    return;
-  }
-
-  if (time(nullptr) < 1700000000) {
-    Serial.println("Leitura nao enviada: aguardando sincronizacao do horario.");
-    return;
-  }
-
-  WiFiClientSecure clienteSeguro;
-  clienteSeguro.setCACert(SUPABASE_ROOT_CA);
-
-  HTTPClient http;
-  const String endpoint = String(SUPABASE_URL) + "/rest/v1/leituras";
-  if (!http.begin(clienteSeguro, endpoint)) {
-    Serial.println("Nao foi possivel iniciar a requisicao HTTPS ao Supabase.");
-    return;
-  }
-
-  http.setTimeout(5000);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", SUPABASE_ANON_KEY);
-  http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
-  http.addHeader("Prefer", "return=minimal");
-
-  String temperaturaJson = ativadoTemperatura ? String(temperaturaC, 2) : "null";
-  String payload = "{\"dispositivo_id\":" + String(DISPOSITIVO_ID) +
-      ",\"temperatura_c\":" + temperaturaJson +
-      ",\"luminosidade_adc\":" + String(luminosidadeAdc) +
-      ",\"potenciometro_adc\":" + String(potenciometroAdc) +
-      ",\"sistema_ativo\":" + String(sistemaAtivo ? "true" : "false") +
-      ",\"temperatura_sensor_ativo\":" + String(ativadoTemperatura ? "true" : "false") +
-      ",\"detector_ativo\":" + String(ativadoDetector ? "true" : "false") +
-      ",\"buzzer_habilitado\":" + String(ativadoBuzzer ? "true" : "false") +
-      ",\"painel_ligado\":" + String(ligadoPainel ? "true" : "false") +
-      ",\"led_ligado\":" + String((ledRAtual || ledGAtual || ledBAtual) ? "true" : "false") +
-      ",\"led_r\":" + String(ledRAtual) +
-      ",\"led_g\":" + String(ledGAtual) +
-      ",\"led_b\":" + String(ledBAtual) +
-      ",\"buzzer_soando\":" + String(buzzerSoando ? "true" : "false") + "}";
-
-  int codigoHttp = http.POST(payload);
-  if (codigoHttp >= 200 && codigoHttp < 300) {
-    Serial.println("Leitura enviada ao Supabase.");
-  } else if (codigoHttp > 0) {
-    Serial.print("Supabase respondeu HTTP ");
-    Serial.print(codigoHttp);
-    Serial.print(": ");
-    Serial.println(http.getString());
-  } else {
-    Serial.print("Falha ao enviar leitura: ");
-    Serial.println(http.errorToString(codigoHttp));
-  }
-
-  http.end();
 }
 
 void definirCorPorEspectro(int valorPot) {
-  if (valorPot < 819) {
-    definirCorRGB(255, 0, 0);       // Vermelho
-  } else if (valorPot < 1638) {
-    definirCorRGB(255, 127, 0);     // Laranja
-  } else if (valorPot < 2457) {
-    definirCorRGB(255, 255, 0);     // Amarelo
-  } else if (valorPot < 3276) {
-    definirCorRGB(255, 255, 255);   // Branco
-  } else if (valorPot < 3685) {
-    definirCorRGB(0, 255, 255);     // Azul Turquesa
-  } else {
-    definirCorRGB(0, 0, 255);       // Azul
-  }
+  if (valorPot < 819)       definirCorRGB(255, 0, 0, "Vermelho");
+  else if (valorPot < 1638) definirCorRGB(255, 127, 0, "Laranja");
+  else if (valorPot < 2457) definirCorRGB(255, 255, 0, "Amarelo");
+  else if (valorPot < 3276) definirCorRGB(255, 255, 255, "Branco");
+  else if (valorPot < 3685) definirCorRGB(0, 255, 255, "Ciano");
+  else                      definirCorRGB(0, 0, 255, "Azul");
 }
 
-// --- COMANDOS DO PAINEL / MONITOR SERIAL ---
+// --- PROCESSAMENTO DE COMANDOS (SERIAL OU NUVEM) ---
 void processarComando(String cmd) {
   cmd.trim();
   if (cmd.equalsIgnoreCase("Ligar")) {
     ligadoPainel = true;
+    Serial.println("[CMD] Ligar -> painel ON");
   } else if (cmd.equalsIgnoreCase("Desligar")) {
     ligadoPainel = false;
+    Serial.println("[CMD] Desligar -> painel OFF");
   } else if (cmd.equalsIgnoreCase("Vermelho")) {
-    definirCorRGB(255, 0, 0);
+    definirCorRGB(255, 0, 0, "Vermelho");
     modoTemporizadoRGB = true;
     tempoPiscaRGB = millis();
+    Serial.println("[CMD] Vermelho por 1s");
   } else if (cmd.equalsIgnoreCase("Amarelo")) {
-    definirCorRGB(255, 255, 0);
+    definirCorRGB(255, 255, 0, "Amarelo");
     modoTemporizadoRGB = true;
     tempoPiscaRGB = millis();
+    Serial.println("[CMD] Amarelo por 1s");
   } else if (cmd.equalsIgnoreCase("Azul")) {
-    definirCorRGB(0, 0, 255);
+    definirCorRGB(0, 0, 255, "Azul");
     modoTemporizadoRGB = true;
     tempoPiscaRGB = millis();
+    Serial.println("[CMD] Azul por 1s");
   } else if (cmd.equalsIgnoreCase("Desativar Temperatura")) {
     ativadoTemperatura = false;
   } else if (cmd.equalsIgnoreCase("Ativar Temperatura")) {
@@ -215,59 +101,69 @@ void processarComando(String cmd) {
     ativadoBuzzer = false;
   } else if (cmd.equalsIgnoreCase("Ativar Buzzer")) {
     ativadoBuzzer = true;
+  } else {
+    Serial.print("[CMD] Desconhecido: ");
+    Serial.println(cmd);
   }
-}
-
-void manterConexaoWiFi() {
-  static unsigned long ultimaTentativa = 0;
-  if (WiFi.status() == WL_CONNECTED ||
-      millis() - ultimaTentativa < INTERVALO_ENVIO_MS) {
-    return;
-  }
-
-  ultimaTentativa = millis();
-  Serial.println("Reconectando ao Wi-Fi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(1500);
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  Serial.println("Conectando ao Wi-Fi para enviar dados ao Supabase...");
-
+  // Configuração dos pinos
   pinMode(PIN_LED_R, OUTPUT);
   pinMode(PIN_LED_G, OUTPUT);
   pinMode(PIN_LED_B, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
-  
-  pinMode(PIN_POT, INPUT);
-  pinMode(PIN_LDR, INPUT);
+
+  pinMode(PIN_POT,  INPUT);
+  pinMode(PIN_LDR,  INPUT);
   pinMode(PIN_TEMP, INPUT);
 
-  pinMode(PIN_BOTÃO, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(PIN_BOTÃO), tratarInterrupcaoBotao, FALLING);
+  pinMode(PIN_BOTAO, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_BOTAO), tratarInterrupcaoBotao, FALLING);
 
-  Serial.println("--- Sistema de Lâmpada Inteligente Inicializado ---");
+  // Estado inicial padrão das variáveis
+  ligadoPainel       = true;
+  ativadoTemperatura = true;
+  ativadoDetector    = true;
+  ativadoBuzzer      = true;
+  botao              = sistemaAtivoBotao;
+  corAtual           = "Desligado";
+
+  // Inicialização do Arduino IoT Cloud
+  initProperties();
+  ArduinoCloud.begin(ArduinoIoTPreferredConnection);
+  setDebugMessageLevel(2);
+  ArduinoCloud.printDebugInfo();
+
+  Serial.println("--- Sistema de Lampada Inteligente IoT Inicializado ---");
 }
 
 void loop() {
-  manterConexaoWiFi();
+  // Mantém a conexão com o Arduino IoT Cloud ativa
+  ArduinoCloud.update();
 
+  // Mantém suporte a comandos via Monitor Serial
   if (Serial.available() > 0) {
     String comando = Serial.readStringUntil('\n');
     processarComando(comando);
   }
 
-  float tempC = lerTemperaturaC(PIN_TEMP);
+  // Leitura dos sensores e atualização das variáveis da nuvem
+  float tempC  = lerTemperaturaC(PIN_TEMP);
   int valorLDR = analogRead(PIN_LDR);
   int valorPot = analogRead(PIN_POT);
 
-  bool emPerigoTemp = (tempC < 0.0 || tempC > 25.0);
+  temperatura  = tempC;             // Envia temperatura para o Cloud
+  luminosidade = valorLDR;          // Envia luminosidade para o Cloud
+  botao        = sistemaAtivoBotao; // Envia estado lógico do botão para o Cloud
+
+  bool emPerigoTemp   = (tempC < 0.0 || tempC > 25.0);
   bool ambienteEscuro = (valorLDR > LIMITE_LDR_ESCURO);
 
+  // --- Telemetria Serial a cada 1s ---
   static unsigned long ultimoPrint = 0;
   if (millis() - ultimoPrint > 1000) {
     ultimoPrint = millis();
@@ -275,50 +171,72 @@ void loop() {
     Serial.print("Temperatura: ");
     if (ativadoTemperatura) {
       Serial.print(tempC, 1);
-      Serial.print(" °C");
-      if (emPerigoTemp) {
-        Serial.print(" -> Perigo! Desligar!");
-      }
+      Serial.print(" C");
+      if (emPerigoTemp) Serial.print(" -> Perigo! Desligar!");
     } else {
       Serial.print("[SENSOR DESATIVADO]");
     }
     Serial.println();
 
-    bool deveLigarRGB = ligadoPainel && sistemaAtivoBotao && 
-                        (!ativadoTemperatura || !emPerigoTemp) && 
-                        (!ativadoDetector || ambienteEscuro);
+    Serial.print("LDR: ");      Serial.print(valorLDR);
+    Serial.print(" | Pot: ");   Serial.print(valorPot);
+    Serial.print(" | Botao: "); Serial.print(botao ? "ON" : "OFF");
+    Serial.println();
 
-    Serial.print("Estado LED RGB: ");
-    Serial.println(deveLigarRGB ? "ON (ligado)" : "OFF (desligado)");
+    Serial.print("Cor LED RGB: ");
+    Serial.println(corAtual);
     Serial.println("------------------------------------------");
   }
 
-  bool buzzerSoando = ativadoBuzzer && ativadoTemperatura &&
-                      emPerigoTemp && sistemaAtivoBotao;
-  if (buzzerSoando) {
+  // --- Buzzer ---
+  if (ativadoBuzzer && ativadoTemperatura && emPerigoTemp && sistemaAtivoBotao) {
     tone(PIN_BUZZER, 1000);
   } else {
     noTone(PIN_BUZZER);
   }
 
+  // --- Controle do LED RGB ---
   if (modoTemporizadoRGB) {
     if (millis() - tempoPiscaRGB > 1000) {
       modoTemporizadoRGB = false;
     }
   } else {
-    if (!sistemaAtivoBotao || !ligadoPainel || (ativadoTemperatura && emPerigoTemp) || (ativadoDetector && !ambienteEscuro)) {
-      definirCorRGB(0, 0, 0);
+    if (!sistemaAtivoBotao || !ligadoPainel ||
+        (!ativadoTemperatura && emPerigoTemp) ||
+        (!ativadoDetector && !ambienteEscuro)) {
+      definirCorRGB(0, 0, 0, "Desligado");
     } else {
       definirCorPorEspectro(valorPot);
     }
   }
+}
 
-  static unsigned long ultimoEnvio = 0;
-  if (millis() - ultimoEnvio >= INTERVALO_ENVIO_MS) {
-    ultimoEnvio = millis();
-    bool sistemaAtivo = sistemaAtivoBotao && ligadoPainel;
-    enviarLeitura(tempC, valorLDR, valorPot, sistemaAtivo, buzzerSoando);
-  }
+// =========================================================================
+// FUNÇÕES DE CALLBACK DO ARDUINO IOT CLOUD (Executadas ao mexer no painel)
+// =========================================================================
 
-  delay(50);
+void onLigadoPainelChange() {
+  Serial.print("[CLOUD] ligadoPainel alterado para: ");
+  Serial.println(ligadoPainel ? "ON" : "OFF");
+}
+
+void onAtivadoTemperaturaChange() {
+  Serial.print("[CLOUD] ativadoTemperatura alterado para: ");
+  Serial.println(ativadoTemperatura ? "ON" : "OFF");
+}
+
+void onAtivadoDetectorChange() {
+  Serial.print("[CLOUD] ativadoDetector alterado para: ");
+  Serial.println(ativadoDetector ? "ON" : "OFF");
+}
+
+void onAtivadoBuzzerChange() {
+  Serial.print("[CLOUD] ativadoBuzzer alterado para: ");
+  Serial.println(ativadoBuzzer ? "ON" : "OFF");
+}
+
+void onComandoNuvemChange() {
+  Serial.print("[CLOUD] Comando recebido: ");
+  Serial.println(comandoNuvem);
+  processarComando(comandoNuvem);
 }
